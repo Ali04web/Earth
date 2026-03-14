@@ -3,7 +3,10 @@ import { useEffect, useRef, useCallback } from "react";
 import type { Article } from "@/app/api/news/route";
 import { CAT_COLORS } from "@/lib/constants";
 
-const EARTH_TEX = "https://unpkg.com/three-globe/example/img/earth-topology.png";
+const EARTH_URLS = [
+  "https://unpkg.com/three-globe/example/img/earth-dark.jpg",
+  "https://unpkg.com/three-globe/example/img/earth-topology.png"
+];
 
 interface GlobeProps {
   articles: Article[];
@@ -80,14 +83,21 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
     let maskW: number, maskH: number;
 
     try {
-      const img = await new Promise<HTMLImageElement>((res, rej) => {
-        const i = new Image();
-        i.crossOrigin = "anonymous";
-        i.onload = () => res(i);
-        i.onerror = () => rej();
-        i.src = EARTH_TEX;
-      });
-      maskW = 720; maskH = 360;
+      let img: HTMLImageElement | null = null;
+      for (const url of EARTH_URLS) {
+        try {
+          img = await new Promise<HTMLImageElement>((res, rej) => {
+            const i = new Image();
+            i.crossOrigin = "anonymous";
+            i.onload = () => res(i);
+            i.onerror = () => rej();
+            i.src = url;
+          });
+          break;
+        } catch { continue; }
+      }
+      if (!img) throw new Error("No texture loaded");
+      maskW = 1024; maskH = 512;
       const tc = document.createElement("canvas");
       tc.width = maskW; tc.height = maskH;
       const tx = tc.getContext("2d")!;
@@ -113,7 +123,13 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
       const x = Math.floor(((lon + 180) / 360) * maskW) % maskW;
       const y = Math.max(0, Math.min(Math.floor(((90 - lat) / 180) * maskH), maskH - 1));
       const idx = (y * maskW + x) * 4;
-      return (maskData[idx] + maskData[idx + 1] + maskData[idx + 2]) > 100;
+      const r = maskData[idx], g = maskData[idx + 1], b = maskData[idx + 2];
+      const brightness = r + g + b;
+      if (brightness > 60) {
+        if (b > r + 20 && b > g + 20) return false;
+        return true;
+      }
+      return false;
     }
 
     const earth = new THREE.Mesh(
@@ -124,7 +140,7 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
     s.earth = earth;
 
     const dotPos: number[] = [];
-    const RES = 240;
+    const RES = 300;
     for (let li = 0; li <= RES; li++) {
       const lat = 90 - (li / RES) * 180;
       const phi = (90 - lat) * Math.PI / 180;
@@ -146,10 +162,10 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
     const landGeom = new THREE.BufferGeometry();
     landGeom.setAttribute("position", new THREE.Float32BufferAttribute(dotPos, 3));
     const landDots = new THREE.Points(landGeom, new THREE.PointsMaterial({
-      color: 0x3399DD,
-      size: 0.009,
+      color: 0x44AAEE,
+      size: 0.0105,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.92,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true,
