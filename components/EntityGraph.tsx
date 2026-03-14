@@ -72,7 +72,7 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
     function radius(n: SimNode) { return Math.max(8, Math.min(28, 7 + n.count * 2.2)) * dpr; }
 
     function tick() {
-      alpha = Math.max(0.001, alpha * 0.992);
+      alpha = Math.max(0.001, alpha * 0.97);
 
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
@@ -80,8 +80,8 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
           let dx = b.x - a.x, dy = b.y - a.y;
           const dist2 = dx * dx + dy * dy + 1;
           const minDist = (radius(a) + radius(b)) * 2.5;
-          const force = -500 * dpr / dist2;
-          const pushForce = dist2 < minDist * minDist ? -2 : 0;
+          const force = -300 * dpr / dist2 * alpha;
+          const pushForce = dist2 < minDist * minDist ? -1.5 * alpha : 0;
           const fx = (force + pushForce) * dx, fy = (force + pushForce) * dy;
           a.vx += fx; a.vy += fy;
           b.vx -= fx; b.vy -= fy;
@@ -94,17 +94,19 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
         const dx = t.x - s.x, dy = t.y - s.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
         const targetLen = 100 * dpr;
-        const force = (dist - targetLen) * 0.06 * (0.4 + l.strength * 0.6);
+        const force = (dist - targetLen) * 0.04 * (0.3 + l.strength * 0.5) * alpha;
         const fx = (dx / dist) * force, fy = (dy / dist) * force;
         s.vx += fx; s.vy += fy;
         t.vx -= fx; t.vy -= fy;
       });
 
+      const hasDrag = nodes.some(n => n.fx != null);
+
       nodes.forEach(n => {
-        if (n.fx != null) { n.x = n.fx; n.y = n.fy!; return; }
-        n.vx += (cx - n.x) * 0.015 * alpha;
-        n.vy += (cy - n.y) * 0.015 * alpha;
-        n.vx *= 0.65; n.vy *= 0.65;
+        if (n.fx != null) { n.x = n.fx; n.y = n.fy!; n.vx = 0; n.vy = 0; return; }
+        n.vx += (cx - n.x) * 0.008 * alpha;
+        n.vy += (cy - n.y) * 0.008 * alpha;
+        n.vx *= 0.45; n.vy *= 0.45;
         n.x += n.vx; n.y += n.vy;
         const r = radius(n);
         n.x = Math.max(r + 30, Math.min(W - r - 30, n.x));
@@ -112,7 +114,9 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
       });
 
       draw();
-      simRef.current.raf = requestAnimationFrame(tick);
+      if (alpha > 0.01 || hasDrag) {
+        simRef.current.raf = requestAnimationFrame(tick);
+      }
     }
 
     function draw() {
@@ -285,7 +289,13 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
         (canvasRef.current!).style.cursor = n ? "pointer" : "crosshair";
       }}
       onMouseLeave={() => { hoverRef.current = null; setHoverId(null); }}
-      onMouseDown={e => { const n = getNode(e); if (n) { dragRef.current = n; n.fx = n.x; n.fy = n.y; } }}
+      onMouseDown={e => {
+        const n = getNode(e);
+        if (n) {
+          dragRef.current = n; n.fx = n.x; n.fy = n.y;
+          initSim();
+        }
+      }}
       onMouseUp={() => { if (dragRef.current) { dragRef.current.fx = null; dragRef.current.fy = null; dragRef.current = null; } }}
       onClick={e => {
         if (dragRef.current) return;
