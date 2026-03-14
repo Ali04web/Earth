@@ -20,6 +20,9 @@ const TYPE_COLORS: Record<string, string> = {
   location: "#00FFB2",
   concept:  "#CC44FF",
 };
+const TYPE_LABELS: Record<string, string> = {
+  person: "PERSON", org: "ORG", location: "LOC", concept: "IDEA",
+};
 
 const RISK_COLOR = (risk: number) => {
   if (risk >= 70) return "#FF3344";
@@ -34,74 +37,78 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
   const hoverRef   = useRef<string | null>(null);
   const selectedRef = useRef<string | null>(null);
   const dragRef    = useRef<SimNode | null>(null);
+  const panRef     = useRef({ x: 0, y: 0, scale: 1 });
 
   selectedRef.current = selectedId;
 
   const initSim = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || graph.nodes.length === 0) return;
-    const W = canvas.width  = canvas.offsetWidth  * devicePixelRatio;
-    const H = canvas.height = canvas.offsetHeight * devicePixelRatio;
+    const dpr = Math.min(devicePixelRatio, 2);
+    const W = canvas.width  = canvas.offsetWidth  * dpr;
+    const H = canvas.height = canvas.offsetHeight * dpr;
     const cx = W / 2, cy = H / 2;
 
-    // Init positions in a circle
+    const linkCounts = new Map<string, number>();
+    graph.links.forEach(l => {
+      linkCounts.set(l.source, (linkCounts.get(l.source) || 0) + 1);
+      linkCounts.set(l.target, (linkCounts.get(l.target) || 0) + 1);
+    });
+
     const nodes: SimNode[] = graph.nodes.map((n, i) => {
       const angle = (i / graph.nodes.length) * Math.PI * 2;
-      const r = Math.min(W, H) * 0.3;
-      return { ...n, x: cx + Math.cos(angle)*r, y: cy + Math.sin(angle)*r, vx: 0, vy: 0 };
+      const connections = linkCounts.get(n.id) || 0;
+      const r = Math.min(W, H) * (0.15 + 0.2 * (1 - connections / Math.max(1, graph.nodes.length)));
+      return { ...n, x: cx + Math.cos(angle) * r + (Math.random() - 0.5) * 30, y: cy + Math.sin(angle) * r + (Math.random() - 0.5) * 30, vx: 0, vy: 0 };
     });
     simRef.current.nodes = nodes;
     simRef.current.links = graph.links;
 
     const ctx = canvas.getContext("2d")!;
-    const alpha_decay = 0.015;
     let alpha = 1;
 
     const nodeById = new Map(nodes.map(n => [n.id, n]));
 
-    function radius(n: SimNode) { return Math.max(5, Math.min(22, 5 + n.count * 1.8)) * devicePixelRatio; }
+    function radius(n: SimNode) { return Math.max(8, Math.min(28, 7 + n.count * 2.2)) * dpr; }
 
     function tick() {
-      alpha = Math.max(0.001, alpha - alpha_decay);
-      const k = alpha * 0.1;
+      alpha = Math.max(0.001, alpha * 0.992);
 
-      // Repulsion (simplified n-body)
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const a = nodes[i], b = nodes[j];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const dist2 = dx*dx + dy*dy + 1;
-          const force = -300 / dist2;
-          const fx = force * dx, fy = force * dy;
+          let dx = b.x - a.x, dy = b.y - a.y;
+          const dist2 = dx * dx + dy * dy + 1;
+          const minDist = (radius(a) + radius(b)) * 2.5;
+          const force = -500 * dpr / dist2;
+          const pushForce = dist2 < minDist * minDist ? -2 : 0;
+          const fx = (force + pushForce) * dx, fy = (force + pushForce) * dy;
           a.vx += fx; a.vy += fy;
           b.vx -= fx; b.vy -= fy;
         }
       }
 
-      // Link attraction
       simRef.current.links.forEach(l => {
         const s = nodeById.get(l.source), t = nodeById.get(l.target);
         if (!s || !t) return;
         const dx = t.x - s.x, dy = t.y - s.y;
-        const dist = Math.sqrt(dx*dx+dy*dy) || 1;
-        const targetLen = 120 * devicePixelRatio;
-        const force = (dist - targetLen) * 0.04 * (0.3 + l.strength);
-        const fx = (dx/dist)*force, fy = (dy/dist)*force;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const targetLen = 100 * dpr;
+        const force = (dist - targetLen) * 0.06 * (0.4 + l.strength * 0.6);
+        const fx = (dx / dist) * force, fy = (dy / dist) * force;
         s.vx += fx; s.vy += fy;
         t.vx -= fx; t.vy -= fy;
       });
 
-      // Centre gravity
       nodes.forEach(n => {
         if (n.fx != null) { n.x = n.fx; n.y = n.fy!; return; }
-        n.vx += (cx - n.x) * 0.01 * k;
-        n.vy += (cy - n.y) * 0.01 * k;
-        n.vx *= 0.7; n.vy *= 0.7;
+        n.vx += (cx - n.x) * 0.015 * alpha;
+        n.vy += (cy - n.y) * 0.015 * alpha;
+        n.vx *= 0.65; n.vy *= 0.65;
         n.x += n.vx; n.y += n.vy;
-        // Clamp
         const r = radius(n);
-        n.x = Math.max(r, Math.min(W-r, n.x));
-        n.y = Math.max(r, Math.min(H-r, n.y));
+        n.x = Math.max(r + 30, Math.min(W - r - 30, n.x));
+        n.y = Math.max(r + 30, Math.min(H - r - 30, n.y));
       });
 
       draw();
@@ -110,9 +117,8 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
 
     function draw() {
       ctx.clearRect(0, 0, W, H);
-      const selId  = selectedRef.current;
-      const hovId  = hoverRef.current;
-      const hlIds  = highlightIds;
+      const selId = selectedRef.current;
+      const hovId = hoverRef.current;
 
       const connected = new Set<string>();
       if (selId) {
@@ -122,112 +128,140 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
         });
       }
 
-      // Links
       simRef.current.links.forEach(l => {
         const s = nodeById.get(l.source), t = nodeById.get(l.target);
         if (!s || !t) return;
         const active = selId && (l.source === selId || l.target === selId);
-        const fade   = selId && !active;
+        const fade = selId && !active;
+
         ctx.beginPath();
         ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-        ctx.strokeStyle = active
-          ? `rgba(0,210,255,${0.35 + l.strength*0.4})`
-          : fade
-            ? "rgba(0,210,255,0.04)"
-            : `rgba(0,210,255,${0.08 + l.strength*0.1})`;
-        ctx.lineWidth = active ? 1.5*devicePixelRatio : 0.8*devicePixelRatio;
+
+        if (active) {
+          ctx.strokeStyle = `rgba(0,210,255,${0.5 + l.strength * 0.5})`;
+          ctx.lineWidth = (2 + l.strength * 2) * dpr;
+          ctx.setLineDash([]);
+        } else if (fade) {
+          ctx.strokeStyle = "rgba(0,210,255,0.04)";
+          ctx.lineWidth = 0.5 * dpr;
+          ctx.setLineDash([4 * dpr, 4 * dpr]);
+        } else {
+          ctx.strokeStyle = `rgba(0,210,255,${0.12 + l.strength * 0.18})`;
+          ctx.lineWidth = (1 + l.strength) * dpr;
+          ctx.setLineDash([]);
+        }
         ctx.stroke();
+        ctx.setLineDash([]);
       });
 
-      // Nodes
       nodes.forEach(n => {
-        const r      = radius(n);
-        const isSel  = n.id === selId;
-        const isHov  = n.id === hovId;
+        const r = radius(n);
+        const isSel = n.id === selId;
+        const isHov = n.id === hovId;
         const isConn = connected.has(n.id);
-        const isHl   = hlIds?.has(n.id);
-        const fade   = selId && !isSel && !isConn;
-        const base   = TYPE_COLORS[n.type] || "#00D2FF";
-        const rc     = RISK_COLOR(n.risk);
-        const color  = rc || base;
+        const fade = selId && !isSel && !isConn;
+        const base = TYPE_COLORS[n.type] || "#00D2FF";
+        const rc = RISK_COLOR(n.risk);
+        const color = rc || base;
+        const nodeAlpha = fade ? 0.15 : 1;
 
-        // Outer glow for selected / hover
-        if (isSel || isHov || isHl) {
+        if (isSel || isHov) {
           ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 6*devicePixelRatio, 0, Math.PI*2);
-          ctx.fillStyle = `${color}22`;
+          ctx.arc(n.x, n.y, r + 12 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = `${color}15`;
           ctx.fill();
           ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 3*devicePixelRatio, 0, Math.PI*2);
-          ctx.fillStyle = `${color}33`;
+          ctx.arc(n.x, n.y, r + 6 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = `${color}25`;
           ctx.fill();
         }
 
-        // Node body
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI*2);
-        ctx.fillStyle = fade ? color + "22" : color + "28";
-        ctx.fill();
-        ctx.strokeStyle = fade ? color + "33" : isSel ? color : color + (isConn ? "CC" : "77");
-        ctx.lineWidth = isSel ? 2*devicePixelRatio : devicePixelRatio;
-        ctx.stroke();
-
-        // Risk ring
         if (n.risk >= 60 && !fade) {
           ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 4*devicePixelRatio, 0, Math.PI*2);
-          ctx.strokeStyle = "#FF334444";
-          ctx.lineWidth = 1.5*devicePixelRatio;
+          ctx.arc(n.x, n.y, r + 5 * dpr, 0, Math.PI * 2);
+          ctx.strokeStyle = "#FF334455";
+          ctx.lineWidth = 2 * dpr;
           ctx.stroke();
         }
 
-        // Type icon dot
-        const icon = { person:"◉", org:"⬡", location:"▸", concept:"◈" }[n.type] || "•";
-        ctx.font = `${r * 0.9}px 'Share Tech Mono'`;
-        ctx.fillStyle = fade ? color + "33" : color + "BB";
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(n.x - r * 0.3, n.y - r * 0.3, 0, n.x, n.y, r);
+        if (fade) {
+          grad.addColorStop(0, color + "18");
+          grad.addColorStop(1, color + "08");
+        } else {
+          grad.addColorStop(0, color + "55");
+          grad.addColorStop(1, color + "22");
+        }
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = fade ? color + "22" : isSel ? color : color + (isConn ? "BB" : "66");
+        ctx.lineWidth = isSel ? 2.5 * dpr : 1.2 * dpr;
+        ctx.stroke();
+
+        const typeLabel = TYPE_LABELS[n.type] || "?";
+        ctx.font = `bold ${Math.max(7, r * 0.45)}px 'Share Tech Mono', monospace`;
+        ctx.fillStyle = fade ? color + "22" : color + "AA";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(icon, n.x, n.y);
+        ctx.fillText(typeLabel, n.x, n.y);
 
-        // Label
-        if (isSel || isHov || isConn || (n.count >= 4 && !fade)) {
-          ctx.font = `${Math.max(9, 10*devicePixelRatio)}px 'Share Tech Mono'`;
-          ctx.fillStyle = fade ? "rgba(255,255,255,0.08)" : isSel ? "#E8F4FF" : "rgba(220,240,255,0.7)";
+        {
+          const fontSize = Math.max(10, 11 * dpr);
+          ctx.font = `bold ${fontSize}px 'Share Tech Mono', monospace`;
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
-          const maxW = 80*devicePixelRatio;
-          const label = n.label.length > 14 ? n.label.slice(0,13)+"…" : n.label;
-          ctx.fillText(label, n.x, n.y + r + 3*devicePixelRatio, maxW);
+
+          const label = n.label.length > 16 ? n.label.slice(0, 15) + "…" : n.label;
+          const labelY = n.y + r + 4 * dpr;
+          const metrics = ctx.measureText(label);
+          const pad = 4 * dpr;
+
+          ctx.fillStyle = "rgba(2,8,16,0.75)";
+          ctx.fillRect(n.x - metrics.width / 2 - pad, labelY - 1 * dpr, metrics.width + pad * 2, fontSize + pad);
+
+          ctx.fillStyle = fade ? "rgba(255,255,255,0.12)" : isSel ? "#FFFFFF" : isConn ? "rgba(220,240,255,0.9)" : "rgba(200,220,240,0.7)";
+          ctx.fillText(label, n.x, labelY, 120 * dpr);
+
+          if (n.count > 1) {
+            ctx.font = `${Math.max(8, 9 * dpr)}px 'Share Tech Mono', monospace`;
+            ctx.fillStyle = fade ? "rgba(255,255,255,0.06)" : "rgba(200,220,240,0.35)";
+            ctx.fillText(`${n.count} mentions`, n.x, labelY + fontSize + 2 * dpr);
+          }
         }
       });
     }
 
     cancelAnimationFrame(simRef.current.raf);
     tick();
-    // Slow down after initial stabilize
-    setTimeout(() => { alpha_decay === 0.015 && (alpha = 0.05); }, 3000);
   }, [graph, highlightIds]);
 
   useEffect(() => { initSim(); }, [initSim]);
   useEffect(() => {
-    const handleResize = () => initSim();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const observer = new ResizeObserver(() => {
+      if (canvas.offsetWidth > 0 && canvas.offsetHeight > 0) initSim();
+    });
+    observer.observe(canvas);
+    window.addEventListener("resize", initSim);
+    return () => { observer.disconnect(); window.removeEventListener("resize", initSim); };
   }, [initSim]);
 
-  // Mouse interaction
   const getNode = useCallback((e: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
+    const dpr = Math.min(devicePixelRatio, 2);
     const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * devicePixelRatio;
-    const my = (e.clientY - rect.top)  * devicePixelRatio;
+    const mx = (e.clientX - rect.left) * dpr;
+    const my = (e.clientY - rect.top) * dpr;
     const nodes = simRef.current.nodes;
-    for (let i = nodes.length-1; i >= 0; i--) {
+    for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i];
-      const r = Math.max(5, Math.min(22, 5 + n.count * 1.8)) * devicePixelRatio;
+      const r = Math.max(8, Math.min(28, 7 + n.count * 2.2)) * dpr;
       const dx = n.x - mx, dy = n.y - my;
-      if (dx*dx + dy*dy <= (r+4*devicePixelRatio)**2) return n;
+      if (dx * dx + dy * dy <= (r + 6 * dpr) ** 2) return n;
     }
     return null;
   }, []);
@@ -237,6 +271,14 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
       ref={canvasRef}
       className="w-full h-full cursor-crosshair"
       onMouseMove={e => {
+        if (dragRef.current) {
+          const canvas = canvasRef.current!;
+          const dpr = Math.min(devicePixelRatio, 2);
+          const rect = canvas.getBoundingClientRect();
+          dragRef.current.fx = (e.clientX - rect.left) * dpr;
+          dragRef.current.fy = (e.clientY - rect.top) * dpr;
+          return;
+        }
         const n = getNode(e);
         const id = n?.id || null;
         if (id !== hoverRef.current) { hoverRef.current = id; setHoverId(id); }
@@ -246,6 +288,7 @@ export default function EntityGraph({ graph, selectedId, onSelect, highlightIds 
       onMouseDown={e => { const n = getNode(e); if (n) { dragRef.current = n; n.fx = n.x; n.fy = n.y; } }}
       onMouseUp={() => { if (dragRef.current) { dragRef.current.fx = null; dragRef.current.fy = null; dragRef.current = null; } }}
       onClick={e => {
+        if (dragRef.current) return;
         const n = getNode(e);
         onSelect(n ? (n.id === selectedId ? null : n) : null);
       }}
