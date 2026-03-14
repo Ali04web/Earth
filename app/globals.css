@@ -36,6 +36,9 @@ body::after {
 .custom-scroll::-webkit-scrollbar-track { background: transparent; }
 .custom-scroll::-webkit-scrollbar-thumb { background: rgba(0,210,255,0.2); border-radius: 2px; }
 
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 @keyframes pulse-dot { 0%,100%{opacity:1;box-shadow:0 0 6px #00D2FF;}50%{opacity:0.3;box-shadow:none;} }
 @keyframes blink-border { 0%,100%{opacity:1;}50%{opacity:0.4;} }
 @keyframes blink { 0%,100%{opacity:1;}50%{opacity:0.3;} }

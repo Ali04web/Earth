@@ -45,6 +45,8 @@ export default function SentinelDashboard() {
   const [dismissedAlerts, setDismissedAlerts] = useState(new Set<string>());
   const [ackedAlerts, setAckedAlerts]       = useState(new Set<string>());
   const [showReport, setShowReport]         = useState(false);
+  const [mobileFeedOpen, setMobileFeedOpen] = useState(false);
+  const [mobileEntityOpen, setMobileEntityOpen] = useState(false);
   // War room state
   const [analysts, setAnalysts]             = useState<Analyst[]>([]);
   const [warPins, setWarPins]               = useState<WarRoomPin[]>([]);
@@ -100,15 +102,17 @@ export default function SentinelDashboard() {
         setWarPins(prev => prev.filter(p => p.id !== event.payload.id));
       }
       if (event.kind === "message") {
-        if (event.payload.analystId === me.id) return; // already added locally
+        if (event.payload.analystId === me.id) return;
         setWarMessages(prev => [...prev, event.payload]);
       }
     });
     return cleanup;
   }, []);
 
-  // Update war room status on view change
   useEffect(() => { updateStatus("active", view); }, [view]);
+
+  // Close mobile drawers on view change
+  useEffect(() => { setMobileFeedOpen(false); setMobileEntityOpen(false); }, [view]);
 
   const fetchNews = useCallback(async () => {
     setFetchStatus("FETCHING FEEDS...");
@@ -140,6 +144,7 @@ export default function SentinelDashboard() {
   const handleArticleClick = useCallback((art: Article) => {
     if (art.geo) { setFlyTo(art.geo.coords); if (view !== "risk" && view !== "warroom") setView("globe"); }
     if (art.link && art.link !== "#") window.open(art.link, "_blank");
+    setMobileFeedOpen(false);
   }, [view]);
   const handlePinHover  = useCallback((art: Article | null, x: number, y: number) => {
     setPopup(art ? { article: art, x, y } : null);
@@ -192,50 +197,70 @@ export default function SentinelDashboard() {
         activeAlerts={activeAlerts}
         onRefresh={fetchNews}
         onReport={() => setShowReport(true)}
+        onToggleFeed={() => setMobileFeedOpen(p => !p)}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left feed panel - hide in warroom */}
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Left feed panel — desktop: inline; mobile: slide-over */}
         {view !== "warroom" && (
-          <FeedPanel
-            articles={articles}
-            activeSources={activeSources}
-            onSourceToggle={toggleSource}
-            onArticleClick={handleArticleClick}
-          />
+          <>
+            {/* Desktop sidebar */}
+            <div className="hidden md:flex">
+              <FeedPanel
+                articles={articles}
+                activeSources={activeSources}
+                onSourceToggle={toggleSource}
+                onArticleClick={handleArticleClick}
+              />
+            </div>
+            {/* Mobile drawer overlay */}
+            {mobileFeedOpen && (
+              <div className="md:hidden fixed inset-0 z-40 flex">
+                <div className="absolute inset-0 bg-black/60" onClick={() => setMobileFeedOpen(false)} />
+                <div className="relative z-50 w-[85vw] max-w-[340px] h-full animate-slide-in">
+                  <FeedPanel
+                    articles={articles}
+                    activeSources={activeSources}
+                    onSourceToggle={toggleSource}
+                    onArticleClick={handleArticleClick}
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Centre */}
         <div className="flex-1 relative overflow-hidden flex flex-col min-w-0">
-          {/* Tabs */}
-          <div className="flex items-center border-b border-cyan-500/15 bg-[rgba(2,8,16,0.95)] flex-shrink-0">
+          {/* Tabs — scrollable on mobile */}
+          <div className="flex items-center border-b border-cyan-500/15 bg-[rgba(2,8,16,0.95)] flex-shrink-0 overflow-x-auto no-scrollbar">
             {TABS.map(tab => (
               <button key={tab.key} onClick={() => setView(tab.key)}
-                className={`relative flex items-center gap-2 px-4 py-2.5 border-r border-cyan-500/10 transition-all group flex-shrink-0 ${
+                className={`relative flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 border-r border-cyan-500/10 transition-all group flex-shrink-0 ${
                   view === tab.key ? "bg-cyan-500/[0.08] border-b-2 border-b-cyan-400" : "hover:bg-cyan-500/[0.04]"
                 }`}>
-                <span className={`text-base leading-none ${
+                <span className={`text-sm sm:text-base leading-none ${
                   view === tab.key ? "text-cyan-400"
                   : tab.key === "risk" && criticalCount > 0 ? "text-red-400"
                   : tab.key === "warroom" ? "text-emerald-400/70"
                   : "text-white/30 group-hover:text-white/50"
                 }`}>{tab.icon}</span>
                 <div className="text-left">
-                  <div className={`font-display text-[0.55rem] tracking-[0.18em] ${
+                  <div className={`font-display text-[0.48rem] sm:text-[0.55rem] tracking-[0.14em] sm:tracking-[0.18em] ${
                     view === tab.key ? "text-cyan-400" : "text-white/35 group-hover:text-white/55"
                   }`}>{tab.label}</div>
-                  <div className="text-[0.44rem] text-white/18">{tab.sub}</div>
+                  <div className="text-[0.38rem] sm:text-[0.44rem] text-white/18 hidden sm:block">{tab.sub}</div>
                 </div>
                 {tab.badge && tab.badge > 0 && (
-                  <span className="absolute top-1.5 right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[0.42rem] font-bold flex items-center justify-center animate-pulse">
+                  <span className="absolute top-1 right-0.5 sm:top-1.5 sm:right-1 w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full bg-red-500 text-white text-[0.36rem] sm:text-[0.42rem] font-bold flex items-center justify-center animate-pulse">
                     {tab.badge}
                   </span>
                 )}
               </button>
             ))}
-            <div className="flex-1" />
-            {/* Tab bar actions */}
-            <div className="flex items-center gap-4 px-4">
+            <div className="flex-1 min-w-0" />
+            {/* Tab bar actions — hidden on mobile */}
+            <div className="hidden sm:flex items-center gap-4 px-4 flex-shrink-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-[0.46rem] text-white/18 uppercase tracking-widest">RISK</span>
                 <span className={`font-display text-[0.68rem] font-bold ${pipeline.riskScore.overall >= 70 ? "text-red-400" : pipeline.riskScore.overall >= 45 ? "text-amber-400" : "text-emerald-400"}`}>
@@ -262,8 +287,8 @@ export default function SentinelDashboard() {
           <div className="flex-1 relative overflow-hidden">
             {/* Globe */}
             <div className={`absolute inset-0 ${view === "globe" ? "block" : "hidden"}`}>
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 font-display text-[0.52rem] tracking-[0.3em] text-cyan-400/20 uppercase pointer-events-none whitespace-nowrap">
-                GLOBAL OSINT // LIVE NEWS // SENTINEL-7
+              <div className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 z-10 font-display text-[0.42rem] sm:text-[0.52rem] tracking-[0.2em] sm:tracking-[0.3em] text-cyan-400/20 uppercase pointer-events-none whitespace-nowrap">
+                OSINT // LIVE NEWS // SEN
               </div>
               <Globe
                 articles={articles}
@@ -273,11 +298,11 @@ export default function SentinelDashboard() {
                 onRotate={handleRotate}
                 flyTo={flyTo}
               />
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-5 text-[0.5rem] text-cyan-400/22 tracking-widest pointer-events-none">
+              <div className="absolute bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 flex gap-3 sm:gap-5 text-[0.42rem] sm:text-[0.5rem] text-cyan-400/22 tracking-widest pointer-events-none">
                 <span>LAT: {coords.lat.toFixed(2)}°</span>
                 <span>LON: {coords.lon.toFixed(2)}°</span>
                 <span>PINS: <span className="text-cyan-400">{pinCount}</span></span>
-                <span>LAST: {lastFetchRef.current}</span>
+                <span className="hidden sm:inline">LAST: {lastFetchRef.current}</span>
               </div>
               {popup && <NewsPopup article={popup.article} x={popup.x} y={popup.y} />}
             </div>
@@ -311,24 +336,51 @@ export default function SentinelDashboard() {
           </div>
         </div>
 
-        {/* Right entity panel */}
+        {/* Right entity panel — desktop: inline; mobile: slide-over */}
         {view === "graph" && (
-          <EntityPanel
-            graph={graph}
-            selected={selectedEntity}
-            articles={articles}
-            onArticleClick={handleArticleClick}
-            onEntityClick={handleEntitySel}
-          />
+          <>
+            {/* Desktop sidebar */}
+            <div className="hidden md:flex">
+              <EntityPanel
+                graph={graph}
+                selected={selectedEntity}
+                articles={articles}
+                onArticleClick={handleArticleClick}
+                onEntityClick={handleEntitySel}
+              />
+            </div>
+            {/* Mobile toggle button */}
+            <button
+              onClick={() => setMobileEntityOpen(p => !p)}
+              className="md:hidden absolute top-14 right-2 z-30 text-[0.5rem] px-2 py-1 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 rounded-sm"
+            >
+              {mobileEntityOpen ? "✕ CLOSE" : "◉ ENTITIES"}
+            </button>
+            {/* Mobile drawer */}
+            {mobileEntityOpen && (
+              <div className="md:hidden fixed inset-0 z-40 flex justify-end">
+                <div className="absolute inset-0 bg-black/60" onClick={() => setMobileEntityOpen(false)} />
+                <div className="relative z-50 w-[85vw] max-w-[300px] h-full">
+                  <EntityPanel
+                    graph={graph}
+                    selected={selectedEntity}
+                    articles={articles}
+                    onArticleClick={(art) => { handleArticleClick(art); setMobileEntityOpen(false); }}
+                    onEntityClick={handleEntitySel}
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* Bottom bar */}
-      <footer className="flex items-center justify-between px-4 h-7 bg-[rgba(1,8,16,0.98)] border-t border-cyan-500/15 flex-shrink-0">
-        <span className="text-[0.46rem] text-white/12 tracking-wider">
-          SENTINEL v3.4 // PHASE-4 — WAR ROOM + REPORT GENERATOR // ZERO COST STACK
+      <footer className="flex items-center justify-between px-2 sm:px-4 h-6 sm:h-7 bg-[rgba(1,8,16,0.98)] border-t border-cyan-500/15 flex-shrink-0">
+        <span className="text-[0.38rem] sm:text-[0.46rem] text-white/12 tracking-wider truncate">
+          SENTINEL v3.4 // PHASE-4
         </span>
-        <div className="flex gap-4 text-[0.46rem] text-white/12">
+        <div className="hidden sm:flex gap-4 text-[0.46rem] text-white/12">
           <span>NODES: {graph.nodes.length}</span>
           <span>EDGES: {graph.links.length}</span>
           <span>ALERTS: {pipeline.alerts.length}</span>
@@ -338,9 +390,10 @@ export default function SentinelDashboard() {
             RISK: {pipeline.riskScore.overall}
           </span>
         </div>
-        <span className="flex items-center gap-1.5 text-[0.46rem] text-white/12">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"/>
-          ALL SYSTEMS NOMINAL
+        <span className="flex items-center gap-1 sm:gap-1.5 text-[0.38rem] sm:text-[0.46rem] text-white/12">
+          <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-emerald-400 inline-block"/>
+          <span className="hidden sm:inline">ALL SYSTEMS NOMINAL</span>
+          <span className="sm:hidden">ONLINE</span>
         </span>
       </footer>
 
