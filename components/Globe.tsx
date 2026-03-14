@@ -54,16 +54,32 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
     resize();
     window.addEventListener("resize", resize);
 
-    // Earth texture
     function makeEarth() {
-      const sz = 1024;
+      const sz = 2048;
       const cv = document.createElement("canvas");
       cv.width = cv.height = sz;
       const cx = cv.getContext("2d")!;
-      const og = cx.createRadialGradient(sz*.5,sz*.5,0,sz*.5,sz*.5,sz*.7);
-      og.addColorStop(0,"#021828"); og.addColorStop(1,"#010C14");
-      cx.fillStyle = og; cx.fillRect(0,0,sz,sz);
-      const lands = [
+
+      cx.fillStyle = "#000000";
+      cx.fillRect(0, 0, sz, sz);
+
+      const scaleX = sz / 1024;
+      const scaleY = sz / 512;
+
+      cx.strokeStyle = "rgba(0,200,255,0.08)";
+      cx.lineWidth = 1.0;
+      const lonLines = 24;
+      const latLines = 12;
+      for (let i = 0; i <= lonLines; i++) {
+        const x = (i / lonLines) * sz;
+        cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, sz); cx.stroke();
+      }
+      for (let i = 0; i <= latLines; i++) {
+        const y = (i / latLines) * sz;
+        cx.beginPath(); cx.moveTo(0, y); cx.lineTo(sz, y); cx.stroke();
+      }
+
+      const lands: number[][][] = [
         [[150,95],[240,80],[330,110],[360,150],[380,220],[360,290],[320,320],[260,310],[200,270],[160,210],[140,150]],
         [[260,310],[290,310],[300,340],[270,360],[250,340]],
         [[260,360],[320,340],[360,380],[380,440],[380,520],[350,570],[300,580],[260,540],[240,470],[230,400]],
@@ -80,57 +96,109 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
         [[720,360],[800,345],[860,365],[880,415],[870,470],[820,500],[760,490],[720,455],[705,400]],
         [[462,100],[475,90],[482,108],[472,118],[460,110]],
       ];
-      cx.fillStyle = "rgba(10,40,20,0.88)";
+
       lands.forEach(pts => {
+        const scaled = pts.map(p => [p[0] * scaleX, p[1] * scaleY]);
+
+        cx.fillStyle = "rgba(0,255,180,0.04)";
         cx.beginPath();
-        cx.moveTo(pts[0][0]*(sz/1024), pts[0][1]*(sz/512));
-        pts.slice(1).forEach(p => cx.lineTo(p[0]*(sz/1024), p[1]*(sz/512)));
-        cx.closePath(); cx.fill();
+        cx.moveTo(scaled[0][0], scaled[0][1]);
+        scaled.slice(1).forEach(p => cx.lineTo(p[0], p[1]));
+        cx.closePath();
+        cx.fill();
+
+        const dotSpacing = 4;
+        const dotRadius = 1.5;
+        cx.fillStyle = "rgba(0,220,160,0.55)";
+
+        for (let i = 0; i < scaled.length; i++) {
+          const [x1, y1] = scaled[i];
+          const [x2, y2] = scaled[(i + 1) % scaled.length];
+          const dx = x2 - x1, dy = y2 - y1;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const steps = Math.max(1, Math.floor(dist / dotSpacing));
+          for (let j = 0; j <= steps; j++) {
+            const t = j / steps;
+            const x = x1 + dx * t + (Math.random() - 0.5) * 2;
+            const y = y1 + dy * t + (Math.random() - 0.5) * 2;
+            cx.beginPath();
+            cx.arc(x, y, dotRadius, 0, Math.PI * 2);
+            cx.fill();
+          }
+        }
+
+        cx.fillStyle = "rgba(0,220,160,0.18)";
+        const minX = Math.min(...scaled.map(p => p[0]));
+        const maxX = Math.max(...scaled.map(p => p[0]));
+        const minY = Math.min(...scaled.map(p => p[1]));
+        const maxY = Math.max(...scaled.map(p => p[1]));
+
+        for (let x = minX; x <= maxX; x += 8) {
+          for (let y = minY; y <= maxY; y += 8) {
+            if (Math.random() > 0.35) continue;
+            cx.save();
+            cx.beginPath();
+            cx.moveTo(scaled[0][0], scaled[0][1]);
+            scaled.slice(1).forEach(p => cx.lineTo(p[0], p[1]));
+            cx.closePath();
+            if (cx.isPointInPath(x, y)) {
+              cx.restore();
+              cx.beginPath();
+              cx.arc(x, y, 1.0, 0, Math.PI * 2);
+              cx.fill();
+            } else {
+              cx.restore();
+            }
+          }
+        }
       });
-      cx.fillStyle = "rgba(180,220,255,0.22)";
-      cx.beginPath(); cx.ellipse(sz/2,8,sz*.35,18,0,0,Math.PI*2); cx.fill();
-      cx.beginPath(); cx.ellipse(sz/2,sz-8,sz*.25,14,0,0,Math.PI*2); cx.fill();
-      cx.strokeStyle = "rgba(0,180,255,0.05)"; cx.lineWidth = 0.6;
-      for(let x=0;x<sz;x+=sz/12){cx.beginPath();cx.moveTo(x,0);cx.lineTo(x,sz);cx.stroke();}
-      for(let y=0;y<sz;y+=sz/6){cx.beginPath();cx.moveTo(0,y);cx.lineTo(sz,y);cx.stroke();}
+
+      cx.fillStyle = "rgba(0,180,220,0.06)";
+      cx.beginPath(); cx.ellipse(sz / 2, 12, sz * 0.35, 24, 0, 0, Math.PI * 2); cx.fill();
+      cx.beginPath(); cx.ellipse(sz / 2, sz - 12, sz * 0.25, 18, 0, 0, Math.PI * 2); cx.fill();
+
       return new THREE.CanvasTexture(cv);
     }
 
     const earth = new THREE.Mesh(
-      new THREE.SphereGeometry(1,72,72),
+      new THREE.SphereGeometry(1, 72, 72),
       new THREE.MeshPhongMaterial({
-        map: makeEarth(), specular: new THREE.Color(0x112233),
-        shininess: 12, emissive: new THREE.Color(0x001018), emissiveIntensity: 0.4,
+        map: makeEarth(),
+        specular: new THREE.Color(0x060C10),
+        shininess: 4,
+        emissive: new THREE.Color(0x020808),
+        emissiveIntensity: 0.6,
       })
     );
     scene.add(earth);
     s.earth = earth;
 
-    [{ r:1.065,o:.13,c:0x0066aa },{ r:1.14,o:.05,c:0x003344 }].forEach(({r,o,c})=>{
+    [{ r: 1.04, o: 0.06, c: 0x00AACC }, { r: 1.08, o: 0.03, c: 0x004455 }].forEach(({ r, o, c }) => {
       scene.add(new THREE.Mesh(
-        new THREE.SphereGeometry(r,32,32),
-        new THREE.MeshPhongMaterial({color:c,transparent:true,opacity:o,side:THREE.FrontSide,blending:THREE.AdditiveBlending,depthWrite:false})
+        new THREE.SphereGeometry(r, 48, 48),
+        new THREE.MeshPhongMaterial({ color: c, transparent: true, opacity: o, side: THREE.FrontSide, blending: THREE.AdditiveBlending, depthWrite: false })
       ));
     });
+
     scene.add(new THREE.Mesh(
-      new THREE.SphereGeometry(1.002,24,24),
-      new THREE.MeshBasicMaterial({color:0x003344,wireframe:true,transparent:true,opacity:.06})
+      new THREE.SphereGeometry(1.003, 36, 36),
+      new THREE.MeshBasicMaterial({ color: 0x00CCBB, wireframe: true, transparent: true, opacity: 0.07 })
     ));
 
-    scene.add(new THREE.AmbientLight(0x102030,2.8));
-    const sun = new THREE.DirectionalLight(0x4499CC,3);
-    sun.position.set(3,1,2); scene.add(sun);
-    const rim = new THREE.DirectionalLight(0x001133,0.8);
-    rim.position.set(-2,-1,-2); scene.add(rim);
+    scene.add(new THREE.AmbientLight(0x0A1520, 2.2));
+    const sun = new THREE.DirectionalLight(0x3388AA, 2.2);
+    sun.position.set(3, 1, 2); scene.add(sun);
+    const rim = new THREE.DirectionalLight(0x002222, 0.5);
+    rim.position.set(-2, -1, -2); scene.add(rim);
 
     const sv: number[] = [];
-    for(let i=0;i<4000;i++){
-      const t=Math.random()*Math.PI*2,p=Math.acos(2*Math.random()-1),r=9+Math.random()*3;
-      sv.push(r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));
+    for (let i = 0; i < 3000; i++) {
+      const t = Math.random() * Math.PI * 2, p = Math.acos(2 * Math.random() - 1), r = 10 + Math.random() * 4;
+      sv.push(r * Math.sin(p) * Math.cos(t), r * Math.cos(p), r * Math.sin(p) * Math.sin(t));
     }
     const sg = new THREE.BufferGeometry();
-    sg.setAttribute("position",new THREE.Float32BufferAttribute(sv,3));
-    scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x8899BB,size:.012})));
+    sg.setAttribute("position", new THREE.Float32BufferAttribute(sv, 3));
+    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x556677, size: 0.008 })));
 
     const pinGroup = new THREE.Group();
     scene.add(pinGroup);
