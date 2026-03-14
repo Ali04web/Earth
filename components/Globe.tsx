@@ -4,6 +4,7 @@ import type { Article } from "@/app/api/news/route";
 import { CAT_COLORS } from "@/lib/constants";
 
 const EARTH_URLS = [
+  "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg",
   "https://unpkg.com/three-globe/example/img/earth-dark.jpg",
   "https://unpkg.com/three-globe/example/img/earth-topology.png"
 ];
@@ -124,12 +125,10 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
       const y = Math.max(0, Math.min(Math.floor(((90 - lat) / 180) * maskH), maskH - 1));
       const idx = (y * maskW + x) * 4;
       const r = maskData[idx], g = maskData[idx + 1], b = maskData[idx + 2];
-      const brightness = r + g + b;
-      if (brightness > 60) {
-        if (b > r + 20 && b > g + 20) return false;
-        return true;
-      }
-      return false;
+      if (r + g + b < 25) return false;
+      if (b > r + 10 && b > g) return false;
+      if (b > 120 && r < 80 && g < 120) return false;
+      return (r + g + b) > 35;
     }
 
     const earth = new THREE.Mesh(
@@ -285,7 +284,7 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
     while (s.pinGroup.children.length) s.pinGroup.remove(s.pinGroup.children[0]);
     s.pinMeshes = [];
 
-    function latLon2Vec(lat: number, lon: number, r = 1.015) {
+    function latLon2Vec(lat: number, lon: number, r = 1.04) {
       const phi = (90 - lat) * Math.PI / 180, th = (lon + 180) * Math.PI / 180;
       return new THREE.Vector3(-r * Math.sin(phi) * Math.cos(th), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(th));
     }
@@ -303,17 +302,24 @@ export default function Globe({ articles, activeSources, onPinHover, onPinClick,
       const pos = latLon2Vec(lat, lon);
 
       const dot = new THREE.Mesh(
-        new THREE.SphereGeometry(0.016, 8, 8),
-        new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending })
+        new THREE.SphereGeometry(0.035, 12, 12),
+        new THREE.MeshBasicMaterial({ color })
       );
       dot.position.copy(pos);
       dot.userData = { arts, lat, lon };
       s.pinGroup.add(dot);
       s.pinMeshes.push(dot);
 
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 12, 12),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      glow.position.copy(pos);
+      s.pinGroup.add(glow);
+
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(.022, .028, 16),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .7, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })
+        new THREE.RingGeometry(.04, .055, 24),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
       );
       ring.position.copy(pos);
       ring.lookAt(new THREE.Vector3(0, 0, 0));
